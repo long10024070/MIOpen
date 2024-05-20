@@ -155,12 +155,15 @@ int32_t mloBCELogitsLossReducedBackwardRunHost(const miopenTensorDescriptor_t iD
 
         size_t c = i % pos_weight_tv.size[0];
 
-        double w  = static_cast<double>(TV_5D_AT(weight, n[0], n[1], n[2], n[3], n[4]));
-        double pw = static_cast<double>(TV_1D_AT(pos_weight, c));
+        double w  = (weight == nullptr
+                         ? 0
+                         : static_cast<double>(TV_5D_AT(weight, n[0], n[1], n[2], n[3], n[4])));
+        double pw = (pos_weight == nullptr ? 0 : static_cast<double>(TV_1D_AT(pos_weight, c)));
 
         double x = static_cast<double>(TV_5D_AT(input, n[0], n[1], n[2], n[3], n[4]));
         double y = static_cast<double>(TV_5D_AT(target, n[0], n[1], n[2], n[3], n[4]));
 
+        if(dI)
         {
             size_t dIidx  = TV5D_IDX(ref_dI_tv, n[0], n[1], n[2], n[3], n[4]);
             double result = -w * (pw * y * (1.0f - sigmoid(x)) + (y - 1.0f) * sigmoid(x));
@@ -168,6 +171,7 @@ int32_t mloBCELogitsLossReducedBackwardRunHost(const miopenTensorDescriptor_t iD
             dI[dIidx] = static_cast<Tcheck>(result);
         }
 
+        if(dT)
         {
             size_t dTidx  = TV5D_IDX(ref_dT_tv, n[0], n[1], n[2], n[3], n[4]);
             double result = w * (log(1.0f - sigmoid(x)) - pw * log(sigmoid(x)));
@@ -504,6 +508,12 @@ int BCELogitsLossDriver<Tgpu, Tref>::AllocateBuffersAndCopy()
         std::cerr << "Error copying (pos_weight) to GPU, size: " << pos_weight_dev->GetSize()
                   << std::endl;
 
+    if(dI_dev->ToGPU(GetStream(), dI.data()) != 0)
+        std::cerr << "Error copying (int grad) to GPU, size: " << dI_dev->GetSize() << std::endl;
+
+    if(dT_dev->ToGPU(GetStream(), dT.data()) != 0)
+        std::cerr << "Error copying (tar grad) to GPU, size: " << dT_dev->GetSize() << std::endl;
+
     if(dO_dev->ToGPU(GetStream(), dO.data()) != 0)
         std::cerr << "Error copying (out grad) to GPU, size: " << dO_dev->GetSize() << std::endl;
 
@@ -615,7 +625,7 @@ int BCELogitsLossDriver<Tgpu, Tref>::RunBackwardGPU()
                                                diDesc,
                                                dI_dev->GetMem(),
                                                dtDesc,
-                                               dT_dev->GetMem(),
+                                               nullptr,
                                                divisor);
         }
 
@@ -665,7 +675,7 @@ int BCELogitsLossDriver<Tgpu, Tref>::RunBackwardCPU()
                                                            pos_weight.data(),
                                                            dO.data(),
                                                            dIhost.data(),
-                                                           dThost.data(),
+                                                           nullptr,
                                                            divisor);
     }
 
