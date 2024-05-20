@@ -78,18 +78,16 @@ bool checkContiguous(const TensorDescriptor& x)
 
 NetworkConfig ReducedForwardProblemDescription::MakeNetworkConfig() const
 {
-    auto input_dtype      = iDesc.GetType();
-    auto target_dtype     = tDesc.GetType();
-    auto weight_dtype     = wDesc.GetType();
-    auto pos_weight_dtype = pwDesc.GetType();
-    auto output_dtype     = oDesc.GetType();
-    auto size             = iDesc.GetElementSize();
+    int input_dtype   = iDesc.GetType();
+    auto output_dtype = oDesc.GetType();
+    if(!IsSameType())
+        input_dtype = -1;
+    auto size = iDesc.GetElementSize();
 
     std::ostringstream ss;
 
     ss << "bceloss_reduced_fwd";
-    ss << "input_dtype" << input_dtype << '&' << target_dtype << '&' << weight_dtype << '&'
-       << pos_weight_dtype;
+    ss << "input_dtype" << input_dtype;
     ss << "output_dtype" << output_dtype;
     ss << "size" << size;
 
@@ -98,20 +96,16 @@ NetworkConfig ReducedForwardProblemDescription::MakeNetworkConfig() const
 
 NetworkConfig ReducedBackwardProblemDescription::MakeNetworkConfig() const
 {
-    auto input_dtype      = iDesc.GetType();
-    auto target_dtype     = tDesc.GetType();
-    auto weight_dtype     = wDesc.GetType();
-    auto pos_weight_dtype = pwDesc.GetType();
-    auto o_grad_dtype     = doDesc.GetType();
-    auto i_grad_dtype     = diDesc.GetType();
-    auto t_grad_dtype     = dtDesc.GetType();
-    auto size             = iDesc.GetElementSize();
+    int input_dtype   = iDesc.GetType();
+    auto o_grad_dtype = doDesc.GetType();
+    if(!IsSameType())
+        input_dtype = -1;
+    auto size = iDesc.GetElementSize();
 
     std::ostringstream ss;
 
     ss << "bceloss_reduced_bwd";
-    ss << "input_dtype" << input_dtype << '&' << target_dtype << '&' << weight_dtype << '&'
-       << pos_weight_dtype << '&' << i_grad_dtype << '&' << t_grad_dtype;
+    ss << "input_dtype" << input_dtype;
     ss << "output_dtype" << o_grad_dtype;
     ss << "size" << size;
 
