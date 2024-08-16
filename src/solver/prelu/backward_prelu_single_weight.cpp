@@ -73,7 +73,7 @@ SingleWeightBackward::GetSolution(const ExecutionContext& /*context*/,
     auto input_dtype  = miopen::GetDataType(problem.GetdInputDesc().GetType());
     auto output_dtype = miopen::GetDataType(problem.GetdOuputDesc().GetType());
 
-    /* Phase 1: Calc gradient for each elements. */
+    /* Phase 1: Calc gradient for each elements and do the first reduce sum. */
     {
         auto size         = problem.GetdInputDesc().GetElementSize();
         auto build_params = KernelBuildParameters{
@@ -84,9 +84,24 @@ SingleWeightBackward::GetSolution(const ExecutionContext& /*context*/,
             {"VIEW_DIMS", VIEW_DIMS},
             {"INPUT_TYPE", input_dtype == "bfloat16" ? "ushort" : input_dtype},
             {"OUTPUT_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
+            {"REDUCE_SIZE", LOCAL_SIZE_SW_REDUCE_BWD},
         };
-        result.construction_params.push_back(make_hip_kernel(
-            {LOCAL_SIZE_SW_BWD}, {size}, "MIOpenPReLU.cpp", "PReLUSWBackward", build_params));
+        if(size <= LOCAL_SIZE_SW_REDUCE_BWD)
+        {
+            result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_SW_BWD},
+                                                                 {size},
+                                                                 "MIOpenPReLU.cpp",
+                                                                 "PReLUSWBackwardFuseWeightGrad",
+                                                                 build_params));
+        }
+        else
+        {
+            result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_SW_BWD},
+                                                                 {size},
+                                                                 "MIOpenPReLU.cpp",
+                                                                 "PReLUSWBackwardFuseCollector",
+                                                                 build_params));
+        }
     }
 
     /* Phase 2: Reduce gradient. */
@@ -100,17 +115,24 @@ SingleWeightBackward::GetSolution(const ExecutionContext& /*context*/,
             {"OUTPUT_TYPE", input_dtype == "bfloat16" ? "ushort" : input_dtype},
             {"REDUCE_SIZE", LOCAL_SIZE_SW_REDUCE_BWD},
         };
-        while(size > LOCAL_SIZE_SW_REDUCE_BWD)
+        if(size > LOCAL_SIZE_SW_REDUCE_BWD)
         {
+            size = (size + LOCAL_SIZE_SW_REDUCE_BWD - 1) / LOCAL_SIZE_SW_REDUCE_BWD;
+            while(size > LOCAL_SIZE_SW_REDUCE_BWD)
+            {
+                result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_SW_REDUCE_BWD},
+                                                                     {size},
+                                                                     "MIOpenReduceSum.cpp",
+                                                                     "ReduceSumFLOATACCUM",
+                                                                     build_params));
+                size = (size + LOCAL_SIZE_SW_REDUCE_BWD - 1) / LOCAL_SIZE_SW_REDUCE_BWD;
+            }
             result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_SW_REDUCE_BWD},
                                                                  {size},
                                                                  "MIOpenReduceSum.cpp",
-                                                                 "ReduceSumFLOATACCUM",
+                                                                 "ReduceSum",
                                                                  build_params));
-            size = (size + LOCAL_SIZE_SW_REDUCE_BWD - 1) / LOCAL_SIZE_SW_REDUCE_BWD;
         }
-        result.construction_params.push_back(make_hip_kernel(
-            {LOCAL_SIZE_SW_REDUCE_BWD}, {size}, "MIOpenReduceSum.cpp", "ReduceSum", build_params));
     }
 
     auto getBuffPart = [ws = GetMultiBufferWorkspaceTraits(problem.GetdInputDesc())](
@@ -138,37 +160,60 @@ SingleWeightBackward::GetSolution(const ExecutionContext& /*context*/,
 
             int kernelCnt = 0;
 
-            /* Phase 1: Calc gradient for each elements. */
+            /* Phase 1: Calc gradient for each elements and do the first reduce sum. */
             {
                 auto input_tv         = get_inner_expanded_tv<VIEW_DIMS>(deref(params.inputDesc));
                 auto weight_tv        = get_inner_expanded_tv<1>(deref(params.weightDesc));
                 auto output_grad_tv   = get_inner_expanded_tv<VIEW_DIMS>(deref(params.doutputDesc));
                 auto input_grad_tv    = get_inner_expanded_tv<VIEW_DIMS>(deref(params.dinputDesc));
                 decltype(auto) kernel = handle_.Run(kernels[kernelCnt++]);
-                kernel(params.input,
-                       params.weight,
-                       params.doutput,
-                       params.dinput,
-                       work_a,
-                       static_cast<uint64_t>(deref(params.inputDesc).GetElementSize()),
-                       input_tv,
-                       weight_tv,
-                       output_grad_tv,
-                       input_grad_tv);
+                uint64_t size         = deref(params.inputDesc).GetElementSize();
+                if(size <= LOCAL_SIZE_SW_REDUCE_BWD)
+                {
+                    auto weight_grad_tv = get_inner_expanded_tv<1>(deref(params.dweightDesc));
+                    kernel(params.input,
+                           params.weight,
+                           params.doutput,
+                           params.dinput,
+                           params.dweight,
+                           size,
+                           input_tv,
+                           weight_tv,
+                           output_grad_tv,
+                           input_grad_tv,
+                           weight_grad_tv);
+                }
+                else
+                {
+                    kernel(params.input,
+                           params.weight,
+                           params.doutput,
+                           params.dinput,
+                           work_a,
+                           size,
+                           input_tv,
+                           weight_tv,
+                           output_grad_tv,
+                           input_grad_tv);
+                }
             }
 
             /* Phase 2: Reduce gradient. */
             {
-                uint64_t size = deref(params.inputDesc).GetElementSize();
-                while(size > LOCAL_SIZE_SW_REDUCE_BWD)
+                uint64_t size = deref(params.dinputDesc).GetElementSize();
+                if(size > LOCAL_SIZE_SW_REDUCE_BWD)
                 {
-                    auto kernel = handle_.Run(kernels[kernelCnt++]);
-                    kernel(work_a, work_b, size);
                     size = (size + LOCAL_SIZE_SW_REDUCE_BWD - 1) / LOCAL_SIZE_SW_REDUCE_BWD;
-                    std::swap(work_a, work_b);
+                    while(size > LOCAL_SIZE_SW_REDUCE_BWD)
+                    {
+                        auto kernel = handle_.Run(kernels[kernelCnt++]);
+                        kernel(work_a, work_b, size);
+                        size = (size + LOCAL_SIZE_SW_REDUCE_BWD - 1) / LOCAL_SIZE_SW_REDUCE_BWD;
+                        std::swap(work_a, work_b);
+                    }
+                    auto weight_grad_tv = get_inner_expanded_tv<1>(deref(params.dweightDesc));
+                    handle_.Run(kernels[kernelCnt++])(work_a, params.dweight, size, weight_grad_tv);
                 }
-                auto weight_grad_tv = get_inner_expanded_tv<1>(deref(params.dweightDesc));
-                handle_.Run(kernels[kernelCnt++])(work_a, params.dweight, size, weight_grad_tv);
             }
 
             if(profiling)

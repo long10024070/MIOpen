@@ -75,6 +75,7 @@ MultiWeightsBackward::GetSolution(const ExecutionContext& context,
             {"VIEW_DIMS", VIEW_DIMS},
             {"INPUT_TYPE", input_dtype == "bfloat16" ? "ushort" : input_dtype},
             {"OUTPUT_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
+            {"REDUCE_SIZE", LOCAL_SIZE_MW_REDUCE_BWD},
         };
         result.construction_params.push_back(make_hip_kernel(
             {LOCAL_SIZE_MW_BWD}, {size}, "MIOpenPReLU.cpp", "PReLUMWBackward", build_params));

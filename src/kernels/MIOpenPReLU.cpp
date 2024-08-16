@@ -30,22 +30,23 @@
 
 #include "float_types.h"
 #include "tensor_view.hpp"
+#include "block_reduce.hpp"
 
 template <typename TI, typename TO, uint32_t NDIMS, bool SingleWeight>
-__device__ void PReLUBackward(const TI* __restrict__ input,
-                              const TI* __restrict__ weight,
-                              const TO* __restrict__ output_grad,
-                              TI* __restrict__ input_grad,
-                              FLOAT_ACCUM* __restrict__ weight_grad_collector,
-                              uint64_t N,
-                              tensor_view_t<NDIMS> input_tv,
-                              tensor_view_t<1> weight_tv,
-                              tensor_view_t<NDIMS> output_grad_tv,
-                              tensor_view_t<NDIMS> input_grad_tv)
+__device__ FLOAT_ACCUM PReLUBackward(const TI* __restrict__ input,
+                                     const TI* __restrict__ weight,
+                                     const TO* __restrict__ output_grad,
+                                     TI* __restrict__ input_grad,
+                                     FLOAT_ACCUM* __restrict__ weight_grad_collector,
+                                     uint64_t N,
+                                     tensor_view_t<NDIMS> input_tv,
+                                     tensor_view_t<1> weight_tv,
+                                     tensor_view_t<NDIMS> output_grad_tv,
+                                     tensor_view_t<NDIMS> input_grad_tv)
 {
     uint64_t gid = blockIdx.x * blockDim.x + threadIdx.x;
     if(gid >= N)
-        return;
+        return CVT_FP32_2ACCUM(0.0f);
 
     auto tensor_layout  = tensor_layout_t<NDIMS>(input_tv, gid);
     FLOAT_ACCUM input_v = CVT_FLOAT2ACCUM(input[input_tv.get_tensor_view_idx(tensor_layout)]);
@@ -60,34 +61,68 @@ __device__ void PReLUBackward(const TI* __restrict__ input,
         input_grad[input_grad_tv.get_tensor_view_idx(tensor_layout)] =
             CVT_ACCUM2FLOAT(input_grad_v);
     }
+
+    FLOAT_ACCUM res = input_v > 0 ? 0 : input_v * grad_v;
     if(weight_grad_collector != nullptr)
-    {
-        weight_grad_collector[gid] = input_v > 0 ? 0 : input_v * grad_v;
-    }
+        weight_grad_collector[gid] = res;
+    return res;
 }
 
-extern "C" __global__ void PReLUSWBackward(const INPUT_TYPE* __restrict__ input,
-                                           const INPUT_TYPE* __restrict__ weight,
-                                           const OUTPUT_TYPE* __restrict__ output_grad,
-                                           INPUT_TYPE* __restrict__ input_grad,
-                                           FLOAT_ACCUM* __restrict__ weight_grad_collector,
-                                           uint64_t N,
-                                           tensor_view_t<VIEW_DIMS> input_tv,
-                                           tensor_view_t<1> weight_tv,
-                                           tensor_view_t<VIEW_DIMS> output_grad_tv,
-                                           tensor_view_t<VIEW_DIMS> input_grad_tv)
+extern "C" __global__ void
+PReLUSWBackwardFuseCollector(const INPUT_TYPE* __restrict__ input,
+                             const INPUT_TYPE* __restrict__ weight,
+                             const OUTPUT_TYPE* __restrict__ output_grad,
+                             INPUT_TYPE* __restrict__ input_grad,
+                             FLOAT_ACCUM* __restrict__ weight_grad_collector,
+                             uint64_t N,
+                             tensor_view_t<VIEW_DIMS> input_tv,
+                             tensor_view_t<1> weight_tv,
+                             tensor_view_t<VIEW_DIMS> output_grad_tv,
+                             tensor_view_t<VIEW_DIMS> input_grad_tv)
 {
     // instantiate the kernel
-    PReLUBackward<INPUT_TYPE, OUTPUT_TYPE, VIEW_DIMS, true>(input,
-                                                            weight,
-                                                            output_grad,
-                                                            input_grad,
-                                                            weight_grad_collector,
-                                                            N,
-                                                            input_tv,
-                                                            weight_tv,
-                                                            output_grad_tv,
-                                                            input_grad_tv);
+    FLOAT_ACCUM val = PReLUBackward<INPUT_TYPE, OUTPUT_TYPE, VIEW_DIMS, true>(input,
+                                                                              weight,
+                                                                              output_grad,
+                                                                              input_grad,
+                                                                              nullptr,
+                                                                              N,
+                                                                              input_tv,
+                                                                              weight_tv,
+                                                                              output_grad_tv,
+                                                                              input_grad_tv);
+    val             = block_reduce<BinaryOp_t::Add, REDUCE_SIZE, ReduceThreadDim::X>(val);
+    if(threadIdx.x == 0)
+        weight_grad_collector[blockIdx.x] = val;
+}
+
+extern "C" __global__ void
+PReLUSWBackwardFuseWeightGrad(const INPUT_TYPE* __restrict__ input,
+                              const INPUT_TYPE* __restrict__ weight,
+                              const OUTPUT_TYPE* __restrict__ output_grad,
+                              INPUT_TYPE* __restrict__ input_grad,
+                              INPUT_TYPE* __restrict__ weight_grad,
+                              uint64_t N,
+                              tensor_view_t<VIEW_DIMS> input_tv,
+                              tensor_view_t<1> weight_tv,
+                              tensor_view_t<VIEW_DIMS> output_grad_tv,
+                              tensor_view_t<VIEW_DIMS> input_grad_tv,
+                              tensor_view_t<1> weight_grad_tv)
+{
+    // instantiate the kernel
+    FLOAT_ACCUM val = PReLUBackward<INPUT_TYPE, OUTPUT_TYPE, VIEW_DIMS, true>(input,
+                                                                              weight,
+                                                                              output_grad,
+                                                                              input_grad,
+                                                                              nullptr,
+                                                                              N,
+                                                                              input_tv,
+                                                                              weight_tv,
+                                                                              output_grad_tv,
+                                                                              input_grad_tv);
+    val             = block_reduce<BinaryOp_t::Add, REDUCE_SIZE, ReduceThreadDim::X>(val);
+    if(threadIdx.x == 0)
+        weight_grad[weight_grad_tv.get_tensor_view_idx({blockIdx.x})] = CVT_ACCUM2FLOAT(val);
 }
 
 extern "C" __global__ void PReLUMWBackward(const INPUT_TYPE* __restrict__ input,
