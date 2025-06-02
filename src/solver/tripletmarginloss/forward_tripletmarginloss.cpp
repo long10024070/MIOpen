@@ -24,6 +24,7 @@
  *
  *******************************************************************************/
 
+#include <miopen/mlo_internal.hpp>
 #include <miopen/datatype.hpp>
 #include <miopen/kernel_build_params.hpp>
 #include <miopen/tripletmarginloss/invoke_params.hpp>
@@ -61,8 +62,8 @@ inline void ConstructDistParams(const ExecutionContext& context,
         auto parallelism_size = get_parallelism_size(reqd_work_item_cnt, output_numel, reduce_size);
         result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_DIST_REDUCE},
                                                              {parallelism_size * output_numel},
-                                                             "MIOpenSum.cpp",
-                                                             "SumParallelFwdContiguous",
+                                                             "MIOpenReduceCalculation.cpp",
+                                                             "CalculationParallelFwdContiguous",
                                                              build_params));
     }
     result.construction_params.push_back(make_hip_kernel({LOCAL_SIZE_DIST_REDUCE},
@@ -100,7 +101,7 @@ inline void RunDistKernels(const std::vector<Kernel>& kernels,
             elapsed += handle_.GetKernelTime();
     }
 
-    auto reduce_size        = params.aDesc->GetSize() == 2 ? params.aDesc->GetLengths()[1] : 1;
+    auto reduce_size        = params.aDesc->GetNumDims() == 2 ? params.aDesc->GetLengths()[1] : 1;
     auto output_numel       = params.aDesc->GetLengths()[0] * 3;
     auto reqd_work_item_cnt = get_reqd_work_item_cnt(handle_, LOCAL_SIZE_DIST_REDUCE);
 
@@ -195,15 +196,17 @@ ConvSolution UnreducedForward2d::GetSolution(
     auto input_dtype  = miopen::GetDataType(problem.GetADesc().GetType());
     auto output_dtype = miopen::GetDataType(problem.GetODesc().GetType());
 
-    auto build_params = KernelBuildParameters{
-        {"MIOPEN_USE_FP16", static_cast<int>(dtype == miopenHalf)},
-        {"MIOPEN_USE_FP32", static_cast<int>(dtype == miopenFloat)},
-        {"MIOPEN_USE_FP64", static_cast<int>(dtype == miopenDouble)},
-        {"MIOPEN_USE_BFP16", static_cast<int>(dtype == miopenBFloat16)},
-        {"INPUT_TYPE", input_dtype == "bfloat16" ? "ushort" : input_dtype},
-        {"OUTPUT_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
-        {"D_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
-    };
+    auto build_params =
+        KernelBuildParameters{{"MIOPEN_USE_FP16", static_cast<int>(dtype == miopenHalf)},
+                              {"MIOPEN_USE_FP32", static_cast<int>(dtype == miopenFloat)},
+                              {"MIOPEN_USE_FP64", static_cast<int>(dtype == miopenDouble)},
+                              {"MIOPEN_USE_BFP16", static_cast<int>(dtype == miopenBFloat16)},
+                              {"INPUT_TYPE", input_dtype == "bfloat16" ? "ushort" : input_dtype},
+                              {"OUTPUT_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
+                              {"D_TYPE", output_dtype == "bfloat16" ? "ushort" : output_dtype},
+                              {"OP_TYPE", "ReduceCalculationOp_t::Sum"},
+                              {"MIOPEN_REDUCE_CALCULATION_PROD", MIOPEN_REDUCE_CALCULATION_PROD},
+                              {"MIOPEN_REDUCE_CALCULATION_SUM", MIOPEN_REDUCE_CALCULATION_SUM}};
 
     /* Phase 1: Calc distance for each vector. */
     ConstructDistParams(context, problem, result, build_params);

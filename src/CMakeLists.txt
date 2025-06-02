@@ -569,7 +569,6 @@ if( MIOPEN_BACKEND MATCHES "OpenCL" OR MIOPEN_BACKEND STREQUAL "HIPOC" OR MIOPEN
         kernels/MIOpenSoftMarginLoss.cpp
         kernels/MIOpenSoftmax.cl
         kernels/MIOpenSoftmaxAttn.cpp
-        kernels/MIOpenSum.cpp
         kernels/MIOpenTripletMarginLoss.cpp
         kernels/MIOpenUtilKernels3.cl
         kernels/MIOpenUtilKernels4.cl
@@ -718,7 +717,6 @@ if( MIOPEN_BACKEND MATCHES "OpenCL" OR MIOPEN_BACKEND STREQUAL "HIPOC" OR MIOPEN
         reduceextreme.cpp
         rope.cpp
         softmarginloss.cpp
-        sum.cpp
         transformers_adam_w.cpp
         tripletmarginloss.cpp
         ${PROJECT_BINARY_DIR}/db_path.cpp

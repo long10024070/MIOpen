@@ -24,6 +24,7 @@
  *
  *******************************************************************************/
 
+#include <miopen/mlo_internal.hpp>
 #include <miopen/tripletmarginloss/utils.hpp>
 
 namespace miopen {

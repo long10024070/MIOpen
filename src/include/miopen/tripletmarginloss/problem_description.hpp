@@ -51,7 +51,7 @@ struct ForwardProblemDescription : ProblemDescriptionBase
             MIOPEN_THROW(
                 miopenStatusBadParm,
                 "Triplet Margin Loss: Anchor, Positive, Negative tensor must have same type.");
-        if(aDesc.GetSize() != 2 || pDesc.GetSize() != 2 || nDesc.GetSize() != 2)
+        if(aDesc.GetNumDims() != 2 || pDesc.GetNumDims() != 2 || nDesc.GetNumDims() != 2)
             MIOPEN_THROW(
                 miopenStatusBadParm,
                 "Triplet Margin Loss: Anchor, Positive, Negative tensor must have 2 dimensions.");
@@ -59,7 +59,7 @@ struct ForwardProblemDescription : ProblemDescriptionBase
             MIOPEN_THROW(
                 miopenStatusBadParm,
                 "Triplet Margin Loss: Anchor, Positive, Negative tensor sizes do not match.");
-        if(oDesc.GetSize() != 1)
+        if(oDesc.GetNumDims() != 1)
             MIOPEN_THROW(miopenStatusBadParm,
                          "Triplet Margin Loss: Output tensor must have 1 dimension.");
         if(oDesc.GetElementSize() != 1 && oDesc.GetElementSize() != aDesc.GetLengths()[0])
@@ -118,11 +118,11 @@ struct BackwardProblemDescription : ProblemDescriptionBase
             MIOPEN_THROW(miopenStatusBadParm,
                          "Triplet Margin Loss: Gradient tensors (excluding Output gradient) must "
                          "share a same type with Anchor, Positive and Negative tensor.");
-        if(aDesc.GetSize() != 2 || pDesc.GetSize() != 2 || nDesc.GetSize() != 2)
+        if(aDesc.GetNumDims() != 2 || pDesc.GetNumDims() != 2 || nDesc.GetNumDims() != 2)
             MIOPEN_THROW(
                 miopenStatusBadParm,
                 "Triplet Margin Loss: Anchor, Positive, Negative tensor must have 2 dimensions.");
-        if(dADesc.GetSize() != 2 || dPDesc.GetSize() != 2 || dNDesc.GetSize() != 2)
+        if(dADesc.GetNumDims() != 2 || dPDesc.GetNumDims() != 2 || dNDesc.GetNumDims() != 2)
             MIOPEN_THROW(miopenStatusBadParm,
                          "Triplet Margin Loss: Gradient tensors (excluding Output gradient) must "
                          "have 2 dimensions.");
@@ -130,7 +130,7 @@ struct BackwardProblemDescription : ProblemDescriptionBase
             MIOPEN_THROW(
                 miopenStatusBadParm,
                 "Triplet Margin Loss: Anchor, Positive, Negative tensor sizes do not match.");
-        if(dODesc.GetSize() != 1)
+        if(dODesc.GetNumDims() != 1)
             MIOPEN_THROW(miopenStatusBadParm,
                          "Triplet Margin Loss: Output gradient tensor must have 1 dimension.");
         if(dODesc.GetElementSize() != 1 && dODesc.GetElementSize() != aDesc.GetLengths()[0])

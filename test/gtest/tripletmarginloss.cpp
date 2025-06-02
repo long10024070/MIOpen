@@ -31,17 +31,7 @@
 MIOPEN_DECLARE_ENV_VAR_STR(MIOPEN_TEST_FLOAT_ARG)
 MIOPEN_DECLARE_ENV_VAR_BOOL(MIOPEN_TEST_ALL)
 
-namespace smoothl1loss {
-
-std::string GetFloatArg()
-{
-    const auto& tmp = miopen::GetStringEnv(ENV(MIOPEN_TEST_FLOAT_ARG));
-    if(tmp.empty())
-    {
-        return "";
-    }
-    return tmp;
-}
+namespace tripletmarginloss {
 
 struct TripletMarginLossTestFloat : TripletMarginLossTest<float>
 {
@@ -55,46 +45,25 @@ struct TripletMarginLossTestBfloat16 : TripletMarginLossTest<bfloat16>
 {
 };
 
-} // namespace smoothl1loss
-using namespace smoothl1loss;
+} // namespace tripletmarginloss
+using namespace tripletmarginloss;
 
 TEST_P(TripletMarginLossTestFloat, TripletMarginLossTest)
 {
-    if(miopen::IsEnabled(ENV(MIOPEN_TEST_ALL)) || (GetFloatArg() == "--float"))
-    {
-        RunTest();
-        Verify();
-    }
-    else
-    {
-        GTEST_SKIP();
-    }
+    RunTest();
+    Verify();
 };
 
 TEST_P(TripletMarginLossTestHalf, TripletMarginLossTest)
 {
-    if(miopen::IsEnabled(ENV(MIOPEN_TEST_ALL)) || (GetFloatArg() == "--half"))
-    {
-        RunTest();
-        Verify();
-    }
-    else
-    {
-        GTEST_SKIP();
-    }
+    RunTest();
+    Verify();
 };
 
 TEST_P(TripletMarginLossTestBfloat16, TripletMarginLossTest)
 {
-    if(miopen::IsEnabled(ENV(MIOPEN_TEST_ALL)) || (GetFloatArg() == "--bfloat16"))
-    {
-        RunTest();
-        Verify();
-    }
-    else
-    {
-        GTEST_SKIP();
-    }
+    RunTest();
+    Verify();
 };
 
 INSTANTIATE_TEST_SUITE_P(TripletMarginLossTestSet,
